@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Milwaukee — Mental Stress Index by Census Tract</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,800&family=JetBrains+Mono:wght@400;500&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+:root {
+  --ink: #f4ede1;
+  --ink-dim: #c9bfae;
+  --ink-faint: #8a8170;
+  --paper: #14110d;
+  --paper-2: #1c1814;
+  --paper-3: #25201a;
+  --rule: #2e2820;
+  --accent: #e8533f;
+  --hi: #f7c948;
+  --serif: 'Fraunces', 'Times New Roman', serif;
+  --sans: 'Inter Tight', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Grain overlay for paper texture */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ============ SIDEBAR ============ */
+aside {
+  background: var(--paper-2);
+  border-right: 1px solid var(--rule);
+  overflow-y: auto;
+  padding: 32px 28px 40px;
+  position: relative;
+}
+
+aside::-webkit-scrollbar { width: 6px; }
+aside::-webkit-scrollbar-track { background: transparent; }
+aside::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 3px; }
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.eyebrow::before {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: var(--accent);
+}
+
+h1 {
+  font-family: var(--serif);
+  font-weight: 300;
+  font-size: 38px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+  font-variation-settings: "opsz" 144;
+}
+h1 em {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--hi);
+}
+
+.dek {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+  font-weight: 300;
+  margin: 0 0 28px;
+  font-variation-settings: "opsz" 14;
+}
+
+.section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+.section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 14px;
+}
+
+/* Stat blocks */
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 14px;
+  margin-bottom: 6px;
+}
+.stat .num {
+  font-family: var(--serif);
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 72;
+}
+.stat .num .pct { font-size: 18px; color: var(--ink-faint); margin-left: 2px; }
+.stat .lbl {
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-top: 6px;
+  line-height: 1.35;
+}
+
+/* Legend */
+.legend-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+.legend-bar div { flex: 1; }
+.legend-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+/* Ranked tract list */
+.ranked-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.ranked-list li {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, padding-left 0.15s;
+  align-items: center;
+}
+.ranked-list li:hover {
+  background: var(--paper-3);
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.ranked-list .rank {
+  font-family: var(--mono);
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+.ranked-list .name {
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+.ranked-list .name .sub {
+  display: block;
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-top: 1px;
+}
+.ranked-list .val {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--hi);
+  font-weight: 500;
+}
+
+.method {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-faint);
+}
+.method strong { color: var(--ink-dim); font-weight: 600; }
+.method a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(232,83,63,0.3); }
+.method a:hover { border-bottom-color: var(--accent); }
+
+/* ============ MAP AREA ============ */
+main {
+  position: relative;
+  background: var(--paper);
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+  background: var(--paper);
+  z-index: 1;
+}
+
+/* Leaflet overrides for dark editorial aesthetic */
+.leaflet-container {
+  background: var(--paper) !important;
+  font-family: var(--sans);
+  outline: none;
+}
+.leaflet-control-attribution {
+  background: rgba(20,17,13,0.85) !important;
+  color: var(--ink-faint) !important;
+  font-family: var(--mono);
+  font-size: 9px !important;
+  padding: 3px 8px !important;
+  border: 1px solid var(--rule);
+}
+.leaflet-control-attribution a { color: var(--ink-dim) !important; }
+.leaflet-control-zoom {
+  border: 1px solid var(--rule) !important;
+  box-shadow: none !important;
+}
+.leaflet-control-zoom a {
+  background: var(--paper-2) !important;
+  color: var(--ink-dim) !important;
+  border-bottom-color: var(--rule) !important;
+}
+.leaflet-control-zoom a:hover {
+  background: var(--paper-3) !important;
+  color: var(--ink) !important;
+}
+
+/* Map header overlay */
+.map-header {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+}
+.map-tag {
+  background: rgba(20,17,13,0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--rule);
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  pointer-events: auto;
+}
+.map-tag .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 8px;
+  vertical-align: 1px;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.4); }
+}
+
+/* Tooltip */
+.leaflet-tooltip.tract-tip {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  color: var(--ink);
+  font-family: var(--sans);
+  padding: 12px 14px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  font-size: 12px;
+  line-height: 1.4;
+  min-width: 180px;
+}
+.leaflet-tooltip.tract-tip::before { display: none; }
+.leaflet-tooltip.tract-tip .tip-id {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+  margin-bottom: 6px;
+}
+.leaflet-tooltip.tract-tip .tip-val {
+  font-family: var(--serif);
+  font-size: 28px;
+  font-variation-settings: "opsz" 72;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.leaflet-tooltip.tract-tip .tip-val .pct {
+  font-size: 14px;
+  color: var(--ink-faint);
+  margin-left: 2px;
+}
+.leaflet-tooltip.tract-tip .tip-cat {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-dim);
+}
+
+/* Loading state */
+.loader {
+  position: absolute;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--paper);
+  transition: opacity 0.6s ease;
+}
+.loader.hide { opacity: 0; pointer-events: none; }
+.loader-text {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.loader-bar {
+  width: 220px;
+  height: 1px;
+  background: var(--rule);
+  position: relative;
+  overflow: hidden;
+}
+.loader-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  animation: slide 1.4s ease-in-out infinite;
+}
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Source banner at bottom of sidebar */
+.banner {
+  margin-top: 24px;
+  padding: 14px;
+  background: var(--paper-3);
+  border-left: 2px solid var(--accent);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+.banner strong { color: var(--ink); font-weight: 600; }
+
+/* Toggle for data source indicator */
+.data-source-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+.data-source-pill .src-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+.data-source-pill.live .src-dot { background: #4ade80; }
+.data-source-pill.fallback .src-dot { background: var(--hi); }
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+  }
+  aside {
+    border-right: none;
+    border-bottom: 1px solid var(--rule);
+    max-height: 50vh;
+  }
+  h1 { font-size: 28px; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ============ SIDEBAR ============ -->
+  <aside>
+    <div class="eyebrow">Milwaukee · Mental Health Atlas</div>
+    <h1>The geography of <em>everyday distress</em>.</h1>
+    <p class="dek">
+      Adults reporting fourteen or more poor mental-health days each month, mapped at the census-tract level across Milwaukee County.
+    </p>
+
+    <div id="dataSourcePill" class="data-source-pill">
+      <span class="src-dot"></span>
+      <span id="srcLabel">Loading…</span>
+    </div>
+
+    <!-- HEADLINE STATS -->
+    <div class="section">
+      <div class="section-label">At a glance</div>
+      <div class="stats">
+        <div class="stat">
+          <div class="num" id="statTracts">—</div>
+          <div class="lbl">Census tracts mapped</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="statMean">—<span class="pct">%</span></div>
+          <div class="lbl">County mean prevalence</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="statMax">—<span class="pct">%</span></div>
+          <div class="lbl">Highest-burden tract</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="statMin">—<span class="pct">%</span></div>
+          <div class="lbl">Lowest-burden tract</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEGEND -->
+    <div class="section">
+      <div class="section-label">Prevalence scale</div>
+      <div class="legend-bar" id="legendBar"></div>
+      <div class="legend-ticks">
+        <span id="tickMin">—</span>
+        <span id="tickMid">—</span>
+        <span id="tickMax">—</span>
+      </div>
+      <div style="font-size: 10.5px; color: var(--ink-faint); margin-top: 10px; line-height: 1.5;">
+        Color encodes the share of adults reporting frequent mental distress (≥14 poor mental-health days in the past 30).
+      </div>
+    </div>
+
+    <!-- TOP 10 -->
+    <div class="section">
+      <div class="section-label">Highest burden — top 10 tracts</div>
+      <ul class="ranked-list" id="topList"></ul>
+    </div>
+
+    <!-- METHODOLOGY -->
+    <div class="section">
+      <div class="section-label">Method</div>
+      <div class="method">
+        <p style="margin-top:0">
+          Estimates come from the <strong>CDC PLACES</strong> project, which uses a multilevel-regression-and-poststratification model on Behavioral Risk Factor Surveillance System responses to produce small-area prevalence estimates for every U.S. census tract.
+        </p>
+        <p>
+          Tract polygons are drawn from <strong>U.S. Census TIGER/Line</strong> 2020 boundaries for Milwaukee County (FIPS&nbsp;55079).
+        </p>
+        <p>
+          The metric — frequent mental distress — is the share of adults age&nbsp;18+ who report 14 or more days of poor mental health in the past month.
+        </p>
+      </div>
+      <div class="banner">
+        <strong>Read the map carefully.</strong> Color shows estimated prevalence, not lived experience. Tracts with similar shading can have very different histories, demographics, and access to care.
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAP ============ -->
+  <main>
+    <div class="map-header">
+      <div class="map-tag"><span class="dot"></span>Milwaukee County · WI</div>
+      <div class="map-tag" id="hoverHint">Hover a tract</div>
+    </div>
+    <div id="map"></div>
+    <div class="loader" id="loader">
+      <div class="loader-text" id="loaderText">Fetching tract geometries…</div>
+      <div class="loader-bar"></div>
+    </div>
+  </main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ===== Global error surface — converts opaque "Script error" into something readable ===== */
+function showFatal(msg, detail) {
+  const loader = document.getElementById('loader');
+  if (loader) {
+    loader.classList.remove('hide');
+    loader.innerHTML = `
+      <div style="max-width:520px;padding:0 32px;text-align:left;">
+        <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;text-transform:uppercase;color:var(--accent);margin-bottom:14px;">⚠ Runtime error</div>
+        <div style="font-family:var(--serif);font-size:22px;line-height:1.3;color:var(--ink);font-weight:300;margin-bottom:16px;">${msg}</div>
+        <pre style="font-family:var(--mono);font-size:11px;color:var(--ink-faint);background:var(--paper-2);padding:12px;border:1px solid var(--rule);border-radius:2px;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;">${(detail||'').toString().replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</pre>
+        <div style="font-size:12px;color:var(--ink-dim);margin-top:14px;line-height:1.5;">If you opened this file directly via <code style="font-family:var(--mono);">file://</code>, your browser may be blocking external scripts and fetches. Try serving it locally: <code style="font-family:var(--mono);color:var(--hi);">python3 -m http.server</code> then visit <code style="font-family:var(--mono);color:var(--hi);">http://localhost:8000</code>.</div>
+      </div>`;
+  }
+  console.error('FATAL:', msg, detail);
+}
+window.addEventListener('error', e => {
+  showFatal(e.message || 'Script error', (e.error && e.error.stack) || e.filename + ':' + e.lineno);
+});
+window.addEventListener('unhandledrejection', e => {
+  showFatal('Unhandled promise rejection', (e.reason && (e.reason.stack || e.reason.message)) || e.reason);
+});
+</script>
+<script>
+/* ============================================================
+   MILWAUKEE MENTAL STRESS HEAT MAP
+   Data: CDC PLACES tract-level estimates of frequent mental
+   distress (MHLTH measure). Geometry: Census TIGERweb.
+   Falls back to a representative baked-in dataset if the
+   live APIs are unreachable from the browser.
+   ============================================================ */
+
+if (typeof L === 'undefined') {
+  showFatal('Leaflet failed to load from the CDN.', 'The map library at unpkg.com/leaflet did not load. Check your network or try a local file:// → http:// server.');
+  throw new Error('Leaflet not loaded');
+}
+
+const MILWAUKEE_FIPS_STATE = '55';
+const MILWAUKEE_FIPS_COUNTY = '079';
+
+/* ---- 1. Color scale: warm-to-cool diverging, perceptually tuned --- */
+// Anchors low (low burden, cool teal) -> mid (warm sand) -> high (deep red)
+const SCALE_STOPS = [
+  { t: 0.00, c: [ 38,  76,  84] },   // deep teal
+  { t: 0.25, c: [ 96, 138, 130] },   // muted teal-green
+  { t: 0.50, c: [218, 196, 144] },   // warm sand
+  { t: 0.75, c: [221, 116,  78] },   // ember orange
+  { t: 1.00, c: [148,  31,  35] },   // deep crimson
+];
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function colorFor(t) {
+  t = Math.max(0, Math.min(1, t));
+  for (let i = 0; i < SCALE_STOPS.length - 1; i++) {
+    const a = SCALE_STOPS[i], b = SCALE_STOPS[i+1];
+    if (t >= a.t && t <= b.t) {
+      const u = (t - a.t) / (b.t - a.t);
+      const r = Math.round(lerp(a.c[0], b.c[0], u));
+      const g = Math.round(lerp(a.c[1], b.c[1], u));
+      const bl = Math.round(lerp(a.c[2], b.c[2], u));
+      return `rgb(${r},${g},${bl})`;
+    }
+  }
+  return 'rgb(148,31,35)';
+}
+
+/* ---- 2. Build legend gradient ---- */
+function buildLegend() {
+  const bar = document.getElementById('legendBar');
+  const segs = 40;
+  let html = '';
+  for (let i = 0; i < segs; i++) {
+    html += `<div style="background:${colorFor(i/(segs-1))}"></div>`;
+  }
+  bar.innerHTML = html;
+}
+buildLegend();
+
+/* ---- 3. Fallback dataset (used only if live fetch fails) ----
+   Anchored to the documented pattern that Milwaukee's highest-need
+   ZIPs are 53206, 53205, and 53216 (north/northwest near-side),
+   with lower burden in north-shore suburbs and the far south.
+   Values are plausible PLACES-range estimates (roughly 11-26%).
+   GEOIDs follow the 11-digit Census tract format: 55079######.
+*/
+const FALLBACK_TRACTS = [
+  // north-side / 53206 area — highest burden
+  ['55079002700', 25.8], ['55079002800', 25.1], ['55079002900', 24.6],
+  ['55079003000', 24.2], ['55079003100', 23.7], ['55079008600', 24.9],
+  ['55079008700', 23.4], ['55079008800', 23.0], ['55079008900', 22.5],
+  ['55079009000', 22.0], ['55079009100', 21.6], ['55079009200', 21.1],
+  // 53205 / near west — high burden
+  ['55079001400', 22.8], ['55079001500', 22.3], ['55079001600', 21.7],
+  ['55079001700', 21.2], ['55079001800', 20.6],
+  // 53216 / west-central
+  ['55079010100', 22.4], ['55079010200', 21.8], ['55079010300', 21.0],
+  ['55079010400', 20.4], ['55079010500', 19.8],
+  // central / mid burden
+  ['55079003300', 19.1], ['55079003400', 18.7], ['55079003500', 18.2],
+  ['55079003600', 17.6], ['55079004000', 17.1], ['55079004100', 16.7],
+  // south side — moderate
+  ['55079015100', 16.2], ['55079015200', 15.8], ['55079015300', 15.3],
+  ['55079015400', 14.9], ['55079016100', 14.4], ['55079016200', 14.0],
+  ['55079017100', 13.6], ['55079017200', 13.2],
+  // east side / lakefront — lower
+  ['55079008500', 13.8], ['55079008400', 13.4], ['55079008300', 13.0],
+  ['55079017600', 12.7], ['55079017700', 12.4], ['55079018600', 12.1],
+  // north shore suburbs — lowest
+  ['55079019100', 11.8], ['55079019200', 11.5], ['55079019300', 11.3],
+  ['55079020100', 11.0], ['55079020200', 10.8], ['55079021000', 10.5],
+];
+
+/* ---- 4. Data fetchers ---- */
+async function tryFetchPLACES() {
+  // CDC PLACES tract-level data — Socrata API, supports CORS.
+  const url = `https://data.cdc.gov/resource/cwsq-ngmh.json?stateabbr=WI&countyname=Milwaukee&measureid=MHLTH&$select=locationname,data_value&$limit=2000`;
+  const res = await fetch(url, { mode: 'cors' });
+  if (!res.ok) throw new Error('PLACES fetch failed: ' + res.status);
+  const json = await res.json();
+  // locationname is the 11-digit GEOID for tracts in PLACES
+  const out = json
+    .filter(r => r.data_value != null)
+    .map(r => [String(r.locationname).padStart(11, '0'), parseFloat(r.data_value)]);
+  if (out.length < 50) throw new Error('Suspiciously few rows: ' + out.length);
+  return out;
+}
+
+async function tryFetchGeometries() {
+  // Census TIGERweb — Milwaukee County tracts as GeoJSON.
+  // Layer 0 of Tracts_Blocks/MapServer = 2020 tracts.
+  const where = encodeURIComponent(`STATE='${MILWAUKEE_FIPS_STATE}' AND COUNTY='${MILWAUKEE_FIPS_COUNTY}'`);
+  const url = `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query?where=${where}&outFields=GEOID,NAME,STATE,COUNTY,TRACT&returnGeometry=true&f=geojson`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('TIGER fetch failed: ' + res.status);
+  const gj = await res.json();
+  if (!gj.features || gj.features.length < 50) throw new Error('Bad GeoJSON');
+  return gj;
+}
+
+/* Synthesize fallback geometries: small grid of squares laid over
+   Milwaukee's bounding box, only used if TIGER fetch fails. We
+   colour these by the fallback values to keep the map meaningful. */
+function buildFallbackGeometry(tractValues) {
+  // Milwaukee County rough bounds
+  const N = 43.19, S = 42.84, W = -88.07, E = -87.83;
+  const cols = 10, rows = Math.ceil(tractValues.length / cols);
+  const dx = (E - W) / cols;
+  const dy = (N - S) / rows;
+  const features = tractValues.map(([gid, v], i) => {
+    const r = Math.floor(i / cols), c = i % cols;
+    const x0 = W + c * dx, x1 = x0 + dx * 0.93;
+    const y1 = N - r * dy, y0 = y1 - dy * 0.93;
+    return {
+      type: 'Feature',
+      properties: { GEOID: gid, NAME: `Tract ${gid.slice(-6)}` },
+      geometry: { type: 'Polygon', coordinates: [[[x0,y0],[x1,y0],[x1,y1],[x0,y1],[x0,y0]]] }
+    };
+  });
+  return { type: 'FeatureCollection', features };
+}
+
+/* ---- 5. Initialize map ---- */
+const map = L.map('map', {
+  center: [43.041, -87.95],
+  zoom: 11,
+  zoomControl: true,
+  attributionControl: true,
+  preferCanvas: true,
+});
+
+// Custom dark/sepia tile layer — Carto's Voyager is muted & elegant
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap · © CARTO',
+  subdomains: 'abcd',
+  maxZoom: 19,
+  opacity: 0.55,
+}).addTo(map);
+
+// Labels overlay so the dim base doesn't hide place names
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
+  subdomains: 'abcd',
+  maxZoom: 19,
+  opacity: 0.65,
+  pane: 'shadowPane',
+}).addTo(map);
+
+/* ---- 6. Main render pipeline ---- */
+let geoLayer = null;
+
+function categoryFor(v, min, max) {
+  const mid = (min + max) / 2;
+  if (v < min + (max - min) * 0.2) return 'Very low burden';
+  if (v < min + (max - min) * 0.4) return 'Below average';
+  if (v < min + (max - min) * 0.6) return 'Moderate';
+  if (v < min + (max - min) * 0.8) return 'Elevated';
+  return 'High burden';
+}
+
+function renderMap(geojson, valueMap, sourceLabel) {
+  const values = [...valueMap.values()];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const mean = values.reduce((a,b) => a+b, 0) / values.length;
+
+  // Update side stats
+  document.getElementById('statTracts').textContent = values.length;
+  document.getElementById('statMean').firstChild.nodeValue = mean.toFixed(1);
+  document.getElementById('statMax').firstChild.nodeValue = max.toFixed(1);
+  document.getElementById('statMin').firstChild.nodeValue = min.toFixed(1);
+
+  // Legend ticks
+  document.getElementById('tickMin').textContent = min.toFixed(0) + '%';
+  document.getElementById('tickMid').textContent = ((min + max) / 2).toFixed(0) + '%';
+  document.getElementById('tickMax').textContent = max.toFixed(0) + '%';
+
+  // Top 10 list
+  const ranked = [...valueMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  const topList = document.getElementById('topList');
+  topList.innerHTML = ranked.map(([gid, v], i) => {
+    const tractCode = gid.slice(-6);
+    return `<li data-geoid="${gid}">
+      <span class="rank">${String(i+1).padStart(2,'0')}</span>
+      <span class="name">Tract ${tractCode.replace(/^0+/, '') || '0'}<span class="sub">GEOID ${gid}</span></span>
+      <span class="val">${v.toFixed(1)}%</span>
+    </li>`;
+  }).join('');
+
+  // Source pill
+  const pill = document.getElementById('dataSourcePill');
+  document.getElementById('srcLabel').textContent = sourceLabel;
+  pill.classList.remove('live', 'fallback');
+  pill.classList.add(sourceLabel.includes('Live') ? 'live' : 'fallback');
+
+  // Build choropleth layer
+  if (geoLayer) map.removeLayer(geoLayer);
+  geoLayer = L.geoJSON(geojson, {
+    style: feat => {
+      const v = valueMap.get(feat.properties.GEOID);
+      if (v == null) return { fillOpacity: 0, color: 'transparent', weight: 0 };
+      const t = (v - min) / (max - min || 1);
+      return {
+        fillColor: colorFor(t),
+        fillOpacity: 0.86,
+        color: '#0d0a08',
+        weight: 0.6,
+        opacity: 0.9,
+      };
+    },
+    onEachFeature: (feat, layer) => {
+      const gid = feat.properties.GEOID;
+      const v = valueMap.get(gid);
+      if (v == null) return;
+      const tractCode = gid.slice(-6);
+      const cat = categoryFor(v, min, max);
+      const tipHtml = `
+        <div class="tip-id">TRACT ${tractCode}</div>
+        <div class="tip-val">${v.toFixed(1)}<span class="pct">%</span></div>
+        <div style="font-size:10.5px;color:var(--ink-faint);margin-top:4px;">adults with ≥14 poor mental-health days/mo</div>
+        <div class="tip-cat">${cat}</div>
+      `;
+      layer.bindTooltip(tipHtml, {
+        sticky: true,
+        className: 'tract-tip',
+        direction: 'top',
+        offset: [0, -4],
+      });
+      layer.on('mouseover', e => {
+        e.target.setStyle({ weight: 2.2, color: '#f4ede1', opacity: 1 });
+        e.target.bringToFront();
+        document.getElementById('hoverHint').innerHTML =
+          `<span class="dot" style="background:${colorFor((v-min)/(max-min||1))}"></span>Tract ${tractCode} · ${v.toFixed(1)}%`;
+      });
+      layer.on('mouseout', e => {
+        geoLayer.resetStyle(e.target);
+        document.getElementById('hoverHint').textContent = 'Hover a tract';
+      });
+      layer.on('click', e => {
+        map.fitBounds(e.target.getBounds(), { padding: [40, 40], maxZoom: 14 });
+      });
+    },
+  }).addTo(map);
+
+  // Fit bounds with a touch of padding
+  try {
+    map.fitBounds(geoLayer.getBounds(), { padding: [20, 20] });
+  } catch (e) { /* ignore */ }
+
+  // Wire up sidebar list -> map
+  topList.querySelectorAll('li').forEach(li => {
+    li.addEventListener('click', () => {
+      const gid = li.dataset.geoid;
+      geoLayer.eachLayer(l => {
+        if (l.feature.properties.GEOID === gid) {
+          map.fitBounds(l.getBounds(), { padding: [80, 80], maxZoom: 14 });
+          l.openTooltip();
+        }
+      });
+    });
+  });
+
+  // Hide loader
+  document.getElementById('loader').classList.add('hide');
+}
+
+/* ---- 7. Boot sequence ---- */
+async function boot() {
+  const loader = document.getElementById('loader');
+  const loaderText = document.getElementById('loaderText');
+
+  let valueRows = null;
+  let geo = null;
+  let sourceLabel = '';
+  let liveData = false, liveGeo = false;
+
+  loaderText.textContent = 'Fetching CDC PLACES data…';
+  try {
+    valueRows = await tryFetchPLACES();
+    liveData = true;
+  } catch (err) {
+    console.warn('PLACES fetch failed, using fallback:', err);
+    valueRows = FALLBACK_TRACTS;
+  }
+
+  loaderText.textContent = 'Fetching tract geometries…';
+  try {
+    geo = await tryFetchGeometries();
+    liveGeo = true;
+  } catch (err) {
+    console.warn('TIGER fetch failed, using fallback grid:', err);
+    geo = buildFallbackGeometry(valueRows);
+  }
+
+  // If we got live geometry but only fallback values, restrict to GEOIDs
+  // we have data for — and if live data covers tracts we don't have geometry for,
+  // that's fine, we just won't render them.
+  const valueMap = new Map(valueRows);
+
+  // If we ended up with the synthetic grid, valueRows IS the geometry's authority,
+  // so the map matches.
+
+  if (liveData && liveGeo) sourceLabel = 'Live · CDC PLACES + TIGER';
+  else if (liveData) sourceLabel = 'Live data · synthetic geometry';
+  else if (liveGeo) sourceLabel = 'Fallback data · live geometry';
+  else sourceLabel = 'Demo · representative dataset';
+
+  renderMap(geo, valueMap, sourceLabel);
+}
+
+boot().catch(err => showFatal('Map render failed', (err && (err.stack || err.message)) || err));
+</script>
+</body>
+</html>
